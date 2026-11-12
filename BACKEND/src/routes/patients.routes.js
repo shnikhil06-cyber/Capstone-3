@@ -1,13 +1,10 @@
 import { Router } from 'express';
 import prisma from '../prisma.js';
-
 const router = Router();
-
 // GET /api/patients
 router.get('/', async (req, res) => {
   try {
     const { q, bloodGroup, gender } = req.query;
-
     const where = {};
     if (bloodGroup && bloodGroup !== 'ALL') {
       where.bloodGroup = String(bloodGroup);
@@ -24,7 +21,6 @@ router.get('/', async (req, res) => {
         { email: { contains: search, mode: 'insensitive' } },
       ];
     }
-
     const patients = await prisma.patient.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -46,7 +42,6 @@ router.get('/', async (req, res) => {
         },
       },
     });
-
     res.json(patients);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -99,17 +94,14 @@ router.get('/:id', async (req, res) => {
         },
       },
     });
-
     if (!patient) {
       return res.status(404).json({ error: 'Patient not found' });
     }
-
     res.json(patient);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // POST /api/patients
 router.post('/', async (req, res) => {
   try {
@@ -127,14 +119,11 @@ router.post('/', async (req, res) => {
       chronicConditions,
       dateOfBirth,
     } = req.body;
-
     if (!name || !phone || !gender) {
       return res.status(400).json({ error: 'Name, phone, and gender are required' });
     }
-
     const count = await prisma.patient.count();
     const patientCode = `PAT-${1000 + count + 1}`;
-
     const newPatient = await prisma.patient.create({
       data: {
         patientCode,
@@ -152,13 +141,11 @@ router.post('/', async (req, res) => {
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
       },
     });
-
     res.status(201).json(newPatient);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // PUT /api/patients/:id
 router.put('/:id', async (req, res) => {
   try {
@@ -195,13 +182,11 @@ router.put('/:id', async (req, res) => {
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
       },
     });
-
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // DELETE /api/patients/:id
 router.delete('/:id', async (req, res) => {
   try {
@@ -212,5 +197,4 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 export default router;
