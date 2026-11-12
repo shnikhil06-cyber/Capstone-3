@@ -32,35 +32,185 @@ export default function App() {
   const { user, isLoading, logout, quickSwitch } = useAuth();
 
   // Primary View Controller: 'website' | 'login' | 'patient' | 'admin'
-  // Default view is the Rishi Healthcare website (landing page), not the login screen
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const initialUrlView = searchParams ? searchParams.get('view') : null;
+  const initialIsAdmin = searchParams ? searchParams.get('admin') === 'true' : false;
+  const initialLoginMode = searchParams ? (searchParams.get('mode') || 'login') : 'login';
+  const initialAdminTab = searchParams ? searchParams.get('tab') : null;
   const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
 
-  // If there's an anchor hash pointing to a section (e.g. #hospitals, #services, #about), prioritize website view
+  // If there's an anchor hash pointing to a section (e.g. #services, #about), prioritize website view
   const defaultMode = (initialHash && initialHash !== '#')
     ? 'website'
-    : (initialUrlView === 'login' ? 'login' : 'website');
+    : (initialUrlView === 'login' ? 'login' : (initialUrlView === 'patient' ? 'patient' : (initialUrlView === 'admin' ? 'admin' : 'website')));
 
   const [viewMode, setViewMode] = useState(defaultMode);
-  const [loginAsAdmin, setLoginAsAdmin] = useState(false);
+  const [loginAsAdmin, setLoginAsAdmin] = useState(initialIsAdmin);
+  const [loginMode, setLoginMode] = useState(initialLoginMode);
+  const [activeTab, setActiveTab] = useState(initialAdminTab || 'dashboard');
+  const [patientTab, setPatientTab] = useState(initialUrlView === 'patient' && initialAdminTab ? initialAdminTab : 'overview');
 
-  // Section navigation helper: switches to website mode, cleans ?view=login from URL, and smoothly scrolls to section
-  const handleNavigateSection = (targetId) => {
-    if (viewMode !== 'website') {
-      setViewMode('website');
+  // Unified Navigation Controller: synchronizes viewMode, admin login state, and browser history
+  const navigateTo = (newMode, options = {}) => {
+    const { admin = false, mode = 'login', targetId = '', tab = '', replace = false } = options;
+
+    setViewMode(newMode);
+    if (newMode === 'login') {
+      setLoginAsAdmin(admin);
+      setLoginMode(mode);
     }
+    if (newMode === 'admin' && tab) {
+      setActiveTab(tab);
+    }
+
     if (typeof window !== 'undefined') {
-      const cleanUrl = window.location.pathname + (targetId ? `#${targetId}` : '');
-      window.history.pushState({}, '', cleanUrl);
-    }
-    setTimeout(() => {
-      const el = document.getElementById(targetId);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth' });
+      const pathname = window.location.pathname || '/';
+      let targetUrl = pathname;
+
+      if (newMode === 'login') {
+        const queryParams = new URLSearchParams();
+        queryParams.set('view', 'login');
+        if (admin) queryParams.set('admin', 'true');
+        if (mode && mode !== 'login') queryParams.set('mode', mode);
+        targetUrl = `${pathname}?${queryParams.toString()}`;
+      } else if (newMode === 'patient') {
+        const queryParams = new URLSearchParams();
+        queryParams.set('view', 'patient');
+        if (tab && tab !== 'overview') queryParams.set('tab', tab);
+        targetUrl = `${pathname}?${queryParams.toString()}`;
+      } else if (newMode === 'admin') {
+        const queryParams = new URLSearchParams();
+        queryParams.set('view', 'admin');
+        const adminTab = tab || activeTab || 'dashboard';
+        queryParams.set('tab', adminTab);
+        targetUrl = `${pathname}?${queryParams.toString()}`;
+      } else if (newMode === 'website') {
+        targetUrl = targetId ? `${pathname}#${targetId}` : pathname;
       }
-    }, 100);
+
+      const stateObj = {
+        viewMode: newMode,
+        loginAsAdmin: admin,
+        loginMode: mode,
+        targetId,
+        tab: newMode === 'admin' ? (tab || activeTab) : tab,
+      };
+
+      const currentFullUrl = window.location.pathname + window.location.search + window.location.hash;
+      if (replace) {
+        window.history.replaceState(stateObj, '', targetUrl);
+      } else if (targetUrl !== currentFullUrl) {
+        window.history.pushState(stateObj, '', targetUrl);
+      }
+    }
+
+    if (targetId) {
+      setTimeout(() => {
+        const el = document.getElementById(targetId);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
   };
+
+  // Section navigation helper: switches to website mode and smoothly scrolls
+  const handleNavigateSection = (targetId) => {
+    navigateTo('website', { targetId });
+  };
+
+  const handleSelectAdminTab = (tab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const currentTab = new URLSearchParams(window.location.search).get('tab');
+      if (currentTab !== tab) {
+        window.history.pushState(
+          { viewMode: 'admin', tab },
+          '',
+          `${window.location.pathname}?view=admin&tab=${tab}`
+        );
+      }
+    }
+  };
+
+  const handleSelectPatientTab = (tab) => {
+    setPatientTab(tab);
+    if (typeof window !== 'undefined') {
+      const currentTab = new URLSearchParams(window.location.search).get('tab');
+      if (currentTab !== tab) {
+        window.history.pushState(
+          { viewMode: 'patient', patientTab: tab },
+          '',
+          `${window.location.pathname}?view=patient&tab=${tab}`
+        );
+      }
+    }
+  };
+
+  // On mount: record initial state into browser history so Back button can return here
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(
+        {
+          viewMode: defaultMode,
+          loginAsAdmin: initialIsAdmin,
+          loginMode: initialLoginMode,
+          targetId: initialHash ? initialHash.replace('#', '') : '',
+          tab: initialAdminTab || 'dashboard',
+        },
+        '',
+        window.location.href
+      );
+    }
+  }, []);
+
+  // Listen for browser Back and Forward buttons (HTML5 popstate event)
+  useEffect(() => {
+    const handlePopState = (event) => {
+      if (typeof window === 'undefined') return;
+
+      const params = new URLSearchParams(window.location.search);
+      const urlView = params.get('view');
+      const isAdminLogin = params.get('admin') === 'true';
+      const urlMode = params.get('mode') || 'login';
+      const urlTab = params.get('tab');
+      const hashId = window.location.hash ? window.location.hash.replace('#', '') : '';
+
+      let targetMode = 'website';
+      if (event.state && event.state.viewMode) {
+        targetMode = event.state.viewMode;
+      } else if (urlView === 'login') {
+        targetMode = 'login';
+      } else if (urlView === 'patient') {
+        targetMode = 'patient';
+      } else if (urlView === 'admin') {
+        targetMode = 'admin';
+      }
+
+      const targetIsAdmin = event.state?.loginAsAdmin ?? isAdminLogin;
+      const targetModeType = event.state?.loginMode ?? urlMode;
+      const targetTab = event.state?.tab || urlTab || 'dashboard';
+
+      setViewMode(targetMode);
+      setLoginAsAdmin(targetIsAdmin);
+      setLoginMode(targetModeType);
+      if (targetMode === 'admin') {
+        setActiveTab(targetTab);
+      }
+      if (targetMode === 'patient') {
+        const pTab = event.state?.patientTab || urlTab || 'overview';
+        setPatientTab(pTab);
+      }
+
+      if (targetMode === 'website' && hashId) {
+        setTimeout(() => {
+          const el = document.getElementById(hashId);
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }, 120);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Scroll to section hash on initial load or viewMode switch
   useEffect(() => {
@@ -74,7 +224,6 @@ export default function App() {
   }, [viewMode]);
 
   // Admin View State
-  const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState(null);
   const [recent, setRecent] = useState(null);
 
@@ -138,17 +287,17 @@ export default function App() {
 
   const handleBookWithDoctor = (doc) => {
     setSelectedDoctorForBooking(doc);
-    setActiveTab('appointments');
+    handleSelectAdminTab('appointments');
   };
 
   const handleBookForPatient = (patient) => {
     setSelectedPatientForBooking(patient);
-    setActiveTab('appointments');
+    handleSelectAdminTab('appointments');
   };
 
   const handleOpenMedicalRecord = (apt) => {
     setSelectedAppointmentForRecord(apt);
-    setActiveTab('medical-records');
+    handleSelectAdminTab('medical-records');
   };
 
   // Loading state
@@ -166,18 +315,27 @@ export default function App() {
     );
   }
 
-  // 1. Unauthenticated or Explicit Login Portal (asking "Are you an Admin?")
-  if (!user && viewMode === 'login') {
+  // 1. Explicit Login Portal (asking "Are you an Admin?")
+  if (viewMode === 'login' || (!user && (viewMode === 'patient' || viewMode === 'admin'))) {
     return (
       <div className="relative">
         <PortalLoginPage
-          initialIsAdmin={loginAsAdmin}
-          onGoToWebsite={() => {
-            if (typeof window !== 'undefined') {
-              window.history.pushState({}, '', window.location.pathname);
-            }
-            setViewMode('website');
+          currentUser={user}
+          initialIsAdmin={loginAsAdmin || viewMode === 'admin'}
+          initialMode={loginMode}
+          onSwitchAdmin={(isAdmin) => {
+            setLoginAsAdmin(isAdmin);
+            navigateTo('login', { admin: isAdmin, mode: loginMode });
           }}
+          onSwitchMode={(mode) => {
+            setLoginMode(mode);
+            navigateTo('login', { admin: loginAsAdmin, mode });
+          }}
+          onLoginSuccess={(loggedInUser) => {
+            const targetMode = loggedInUser?.role === 'PATIENT' ? 'patient' : 'admin';
+            navigateTo(targetMode);
+          }}
+          onGoToWebsite={() => navigateTo('website')}
         />
       </div>
     );
@@ -198,16 +356,13 @@ export default function App() {
             const el = document.getElementById('book-appointment');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          onOpenAuth={(asAdmin = false) => {
-            setLoginAsAdmin(asAdmin);
-            setViewMode('login');
-          }}
+          onOpenAuth={(asAdmin = false) => navigateTo('login', { admin: asAdmin })}
           onOpenPayBill={() => {
             const el = document.getElementById('book-appointment');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          onOpenPatientPortal={() => setViewMode('patient')}
-          onOpenAdminPortal={() => setViewMode('admin')}
+          onOpenPatientPortal={() => navigateTo('patient')}
+          onOpenAdminPortal={() => navigateTo('admin')}
         />
 
         {/* 5-Second Promotional Banner Carousel */}
@@ -226,10 +381,7 @@ export default function App() {
             stats={stats}
             onAppointmentBooked={loadPublicData}
             user={user}
-            onRequireLogin={() => {
-              setLoginAsAdmin(false);
-              setViewMode('login');
-            }}
+            onRequireLogin={() => navigateTo('login', { admin: false })}
           />
         </div>
 
@@ -244,8 +396,7 @@ export default function App() {
           doctors={publicDoctors}
           onBookDoctor={(doc) => {
             if (!user) {
-              setLoginAsAdmin(false);
-              setViewMode('login');
+              navigateTo('login', { admin: false });
               return;
             }
             const el = document.getElementById('book-appointment');
@@ -271,27 +422,26 @@ export default function App() {
 
         {/* Max Healthcare Comprehensive Footer */}
         <MaxFooter
-          onOpenAuth={(asAdmin = false) => {
-            setLoginAsAdmin(asAdmin);
-            setViewMode('login');
-          }}
+          onOpenAuth={(asAdmin = false) => navigateTo('login', { admin: asAdmin })}
         />
       </div>
     );
   }
 
   // 3. Authenticated Patient Portal
-  if (user && (viewMode === 'patient' || (user.role === 'PATIENT' && viewMode !== 'admin'))) {
+  if (user && (viewMode === 'patient' || (user.role === 'PATIENT' && viewMode !== 'admin' && viewMode !== 'website'))) {
     return (
       <PatientPortalView
-        onBackToWebsite={() => setViewMode('website')}
+        initialTab={patientTab}
+        onSelectTab={handleSelectPatientTab}
+        onBackToWebsite={() => navigateTo('website')}
         onSwitchToAdmin={async () => {
           if (user.role === 'ADMIN' || user.role === 'DOCTOR' || user.role === 'RECEPTIONIST') {
-            setViewMode('admin');
+            navigateTo('admin');
           } else {
             // Quick-switch to Super Admin for demo evaluation
             await quickSwitch('admin@hospital.com');
-            setViewMode('admin');
+            navigateTo('admin');
           }
         }}
       />
@@ -305,18 +455,18 @@ export default function App() {
       <Navbar
         onOpenLogin={() => {
           logout();
-          setViewMode('login');
+          navigateTo('login', { admin: true });
         }}
         onDataReload={loadDashboardData}
-        onViewWebsite={() => setViewMode('website')}
-        onViewPatientPortal={() => setViewMode('patient')}
+        onViewWebsite={() => navigateTo('website')}
+        onViewPatientPortal={() => navigateTo('patient')}
       />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={handleSelectAdminTab}
           stats={stats}
         />
 
@@ -326,11 +476,11 @@ export default function App() {
             <DashboardView
               stats={stats}
               recent={recent}
-              onNavigate={setActiveTab}
-              onOpenBookAppointment={() => setActiveTab('appointments')}
-              onOpenRegisterPatient={() => setActiveTab('patients')}
-              onOpenAdmitPatient={() => setActiveTab('rooms')}
-              onOpenCreateInvoice={() => setActiveTab('billing')}
+              onNavigate={handleSelectAdminTab}
+              onOpenBookAppointment={() => handleSelectAdminTab('appointments')}
+              onOpenRegisterPatient={() => handleSelectAdminTab('patients')}
+              onOpenAdmitPatient={() => handleSelectAdminTab('rooms')}
+              onOpenCreateInvoice={() => handleSelectAdminTab('billing')}
               onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
             />
           )}
