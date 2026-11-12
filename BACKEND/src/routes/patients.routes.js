@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import prisma from '../prisma.js';
+
 const router = Router();
+
 // GET /api/patients
 router.get('/', async (req, res) => {
   try {
     const { q, bloodGroup, gender } = req.query;
+
     const where = {};
     if (bloodGroup && bloodGroup !== 'ALL') {
       where.bloodGroup = String(bloodGroup);
@@ -21,6 +24,7 @@ router.get('/', async (req, res) => {
         { email: { contains: search, mode: 'insensitive' } },
       ];
     }
+
     const patients = await prisma.patient.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -42,12 +46,12 @@ router.get('/', async (req, res) => {
         },
       },
     });
+
     res.json(patients);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
-
 // GET /api/patients/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -164,7 +168,6 @@ router.put('/:id', async (req, res) => {
       chronicConditions,
       dateOfBirth,
     } = req.body;
-
     const updated = await prisma.patient.update({
       where: { id },
       data: {
